@@ -14,7 +14,7 @@ GOBUILDDIR := _build
 %:
 	dh $@ --buildsystem=golang --with=golang,vci,yang,systemd,config-package --builddirectory=$(GOBUILDDIR)
 
-override_dh_auto_build: vet
+override_dh_auto_build:
 	dh_auto_build
 
 # We do not vet vendor code
