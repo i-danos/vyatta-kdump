@@ -22,6 +22,10 @@ type Config struct {
 	//options
 	cacheFile string
 	client    *vci.Client
+
+	// Indirections so tests can run Set without touching the system.
+	apply  func(*ConfigData) error
+	status func(*ConfigData) string
 }
 
 var instance_cfg *Config
@@ -32,6 +36,8 @@ func ConfigNew(client *vci.Client, cache string) *Config {
 
 	cfg.client = client
 	cfg.cacheFile = cache
+	cfg.apply = cfg.applyConfig
+	cfg.status = setResult
 
 	cfg.readCache()
 	instance_cfg = cfg
@@ -48,21 +54,34 @@ func (c *Config) Get() *ConfigData {
 	return c.currentConfig.Load().(*ConfigData)
 }
 
+// Set applies newConfig. It returns nil when the configuration was applied,
+// including when kernel crash dump is configured disabled, and the real apply
+// error otherwise: the VCI framework turns a non-nil result into a failed
+// commit. The human-readable status text is informational and goes to the log
+// only; returning it as an error made every commit fail on a system with
+// kernel crash dump disabled.
+//
+// The cached and current configuration only advance once the configuration
+// was applied. After a failed apply they still describe what is in effect, so
+// the state reported to operators does not claim a configuration that was
+// never applied, and the cache file does not replay it at the next start.
 func (c *Config) Set(newConfig *ConfigData) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	c.writeCache(newConfig)
 
-	if newConfig != nil {
-		err := c.applyConfig(newConfig)
-		if err != nil {
-			log.Elog.Println("Set Error: ", err)
-		}
-		c.currentConfig.Store(newConfig)
+	if newConfig == nil {
+		m := c.status(newConfig)
+		log.Elog.Println(m)
+		return errors.New(m)
 	}
-	m := setResult(newConfig)
-	log.Ilog.Println(m)
-	return errors.New(m)
+
+	if err := c.apply(newConfig); err != nil {
+		log.Elog.Println("Set Error: ", err)
+		return err
+	}
+	c.writeCache(newConfig)
+	log.Ilog.Println(c.status(newConfig))
+	return nil
 }
 
 func (c *Config) Check(proposedConfig *ConfigData) error {
