@@ -39,9 +39,9 @@ func (s *State) getConfig() *cf.KDumpData {
 }
 
 func (s *State) serviceState() string {
-	kdump_state := kdump.GetKDumpState()
+	kdump_state, err := kdump.GetKDumpState()
 
-	if kdump_state == kdump.KDumpReady {
+	if err == nil && kdump_state == kdump.KDumpReady {
 		return "running"
 	}
 

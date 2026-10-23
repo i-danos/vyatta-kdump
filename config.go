@@ -26,6 +26,13 @@ type Config struct {
 	// Indirections so tests can run Set without touching the system.
 	apply  func(*ConfigData) error
 	status func(*ConfigData) string
+
+	// Indirections for applyConfig, so tests can run it without the system.
+	snapshot func() (kdump.Snapshot, error)
+	revert   func(kdump.Snapshot) error
+	reserve  func(*ConfigData) error
+	enable   func(*int, bool) error
+	disable  func(bool) error
 }
 
 var instance_cfg *Config
@@ -38,6 +45,11 @@ func ConfigNew(client *vci.Client, cache string) *Config {
 	cfg.cacheFile = cache
 	cfg.apply = cfg.applyConfig
 	cfg.status = setResult
+	cfg.snapshot = kdump.SnapshotApplyState
+	cfg.revert = kdump.RevertApplyState
+	cfg.reserve = reserveMem
+	cfg.enable = kdump.Enable
+	cfg.disable = kdump.Disable
 
 	cfg.readCache()
 	instance_cfg = cfg
@@ -88,29 +100,46 @@ func (c *Config) Check(proposedConfig *ConfigData) error {
 	return nil
 }
 
+// applyConfig snapshots grubenv, the env file and the service state first; a
+// snapshot error aborts with nothing changed. If any apply step then fails,
+// the snapshot is restored and the apply error is returned; a failed revert
+// is appended to it, never replacing it. A nil KDump is "disabled, cleanup".
 func (c *Config) applyConfig(cfg *ConfigData) error {
+	snap, err := c.snapshot()
+	if err != nil {
+		return err
+	}
+
 	errs := make([]error, 0)
 
-	if err := reserveMem(cfg); err != nil {
+	if err := c.reserve(cfg); err != nil {
 		errs = append(errs, err)
 	}
 
 	kd := cfg.System.KDump
 	if kd != nil && kd.IsEnabled() {
-		if err := kdump.Enable(kd.FilesToSave, kd.DeleteOldFiles); err != nil {
+		if err := c.enable(kd.FilesToSave, kd.DeleteOldFiles); err != nil {
 			errs = append(errs, fmt.Errorf("Failed to enable kernel-crash-dump: %s", err))
 		}
 	} else {
-		kdump.Disable(!kd.Enable)
+		cleanup := kd == nil || !kd.Enable
+		if err := c.disable(cleanup); err != nil {
+			errs = append(errs, fmt.Errorf("Failed to disable kernel-crash-dump: %s", err))
+		}
 	}
 
-	var err error
 	for i, e := range errs {
 		if i == 0 {
 			err = e
 		} else {
 			err = fmt.Errorf("%s, %s", err, e)
 		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	if rerr := c.revert(snap); rerr != nil {
+		err = fmt.Errorf("%s; %s", err, rerr)
 	}
 	return err
 }
@@ -137,8 +166,12 @@ func setResult(newcfg *ConfigData) string {
 	}
 
 	kd := newcfg.System.KDump
+	if kd == nil {
+		kd = &cfg.KDumpData{} // nil means disabled
+	}
 
-	ready := kdump.GetKDumpState() == kdump.KDumpReady
+	kstate, kerr := kdump.GetKDumpState()
+	ready := kerr == nil && kstate == kdump.KDumpReady
 	reboot := kdump.IsRebootNeeded()
 	reserved := kdump.CrashKernelMemory != 0
 
@@ -171,11 +204,12 @@ func setResult(newcfg *ConfigData) string {
 	return strings.Join([]string{state, mem}, " ")
 }
 
+// readCache replays the cache file at start. The current configuration only
+// advances when the replay was applied (Set stores it); a missing, garbled or
+// not-applied cache leaves the empty configuration, never a half-read or
+// reverted one.
 func (c *Config) readCache() {
-	cache := &ConfigData{}
-	defer func() {
-		c.currentConfig.Store(cache)
-	}()
+	c.currentConfig.Store(&ConfigData{})
 	if c.cacheFile == "" {
 		return
 	}
@@ -184,6 +218,7 @@ func (c *Config) readCache() {
 		log.Wlog.Println("read-cache:", err)
 		return
 	}
+	cache := &ConfigData{}
 	err = rfc7951.Unmarshal(buf, cache)
 	if err != nil {
 		log.Wlog.Println("read-cache:", err)
