@@ -1,3 +1,24 @@
+vyatta-kdump (0.3danos4) unstable; urgency=medium
+
+  * Apply is observable and self-reverting (A02 phase 3): applyConfig takes
+    a snapshot of grubenv crashkernel memory, the kdump service state, the
+    kexec crash-kernel flag and /etc/default/kdump-tools, and on any error
+    reverts in reverse order, reporting every step. A snapshot failure
+    aborts before anything is changed and a revert never deletes an env file
+    that merely could not be read.
+  * Disable no longer swallows the service-stop error, GrubReservedMem
+    distinguishes "unset" from "command failed", and a nil configuration is
+    treated as disabled with cleanup instead of dereferencing nil.
+  * Config and cache do not advance after a failed or reverted apply.
+  * Not restored (by design): xattrs/ACLs/labels and timestamps of the env
+    file, the crash kernel already loaded, and the running crashkernel=
+    command line (reboot-only).
+  * Unit tests for each snapshot input, revert path and the marshal format.
+  * Version note: danos2 and danos3 were intermediate local builds and were
+    never published.
+
+ -- i-danos dev <dev@i-danos.dev>  Fri, 23 Oct 2026 12:00:00 -0700
+
 vyatta-kdump (0.3) unstable; urgency=medium
 
   [ Nachiketa Prachanda ]
