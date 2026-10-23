@@ -10,7 +10,7 @@ import (
 type IntOrString interface{}
 
 type KDumpData struct {
-	Enable         bool   `rfc7951:"enable,omitempty"`
+	Enable         bool   `rfc7951:"enable"`
 	FilesToSave    *int   `rfc7951:"files-to-save,omitempty"`
 	DeleteOldFiles bool   `rfc7951:"delete-old-files,emptyleaf"`
 	ReservedMemory IntOrString `rfc7951:"reserved-memory,omitempty"`
