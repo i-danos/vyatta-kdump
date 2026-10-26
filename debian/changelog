@@ -1,3 +1,15 @@
+vyatta-kdump (0.3danos5) unstable; urgency=medium
+
+  * Test-only change; no change to the shipped binaries or config.
+  * The revert test fixtures now use the test process's own euid/egid as
+    the snapshot's env file owner instead of a hard-coded 0:0, so the
+    revert tests also pass when built as a non-root user (as on OBS).
+    Restoring the saved owner still calls chown unchanged; that path stays
+    covered by the two root-only cases TestRevertRestoresOwner and
+    TestRevertReplayRestoresOwnerModeBytesTwice.
+
+ -- i-danos dev <dev@i-danos.dev>  Sun, 25 Oct 2026 21:12:23 -0700
+
 vyatta-kdump (0.3danos4) unstable; urgency=medium
 
   * Apply is observable and self-reverting (A02 phase 3): applyConfig takes

@@ -127,9 +127,15 @@ func envStat(t *testing.T, p string) (os.FileMode, uint32, uint32) {
 	return fi.Mode(), st.Uid, st.Gid
 }
 
+// presentSnap's env owner is the test process's own uid/gid: chown to the
+// current owner is permitted without privilege, so these cases verify
+// content, mode and service state as non-root (e.g. an OBS build user).
+// Restoring a different owner needs root and is covered by
+// TestRevertRestoresOwner and TestRevertReplayRestoresOwnerModeBytesTwice.
 func presentSnap() kdumpSnap {
 	return kdumpSnap{grubValue: "1G", grubSet: true, serviceActive: true,
-		envBytes: []byte("OLD\n"), envMode: 0640, envUid: 0, envGid: 0}
+		envBytes: []byte("OLD\n"), envMode: 0640,
+		envUid: uint32(os.Geteuid()), envGid: uint32(os.Getegid())}
 }
 
 func TestRevertZeroSnapTouchesNothing(t *testing.T) {
